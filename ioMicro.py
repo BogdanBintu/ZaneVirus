@@ -2004,3 +2004,59 @@ class decoder_simple():
             is_code = icode==icodesf
             viewer.add_points(X[is_code],size=size[is_code],face_color=color,name=gene)
         return viewer
+        
+def calc_color_matrix(x,yd,order=2):
+    """This gives a quadratic color transformation (in matrix form)
+    x is Nx3 vector of positions in the reference channel (typically cy5)
+    yd is the Nx3 vector of positions in another channel - the reference (i.e. cy7-cy5)
+    return m_ a 3x7 matrix which when multipled with x,x**2,1 returns y-x
+    This m_ is indended to be used with apply_colorcor
+    """ 
+    x_ = np.array(x)# ref zxy
+    y_ = np.array(yd)# dif zxy
+    good = ~np.any(np.isnan(y_),axis=-1)
+    x_ = x_[good]
+    y_ = y_[good]
+    
+    # get a list of exponents
+    exps = []
+    for p in range(order+1):
+        for i in range(p+1):
+            for j in range(p+1):
+                if i+j<=p:
+                    exps.append([i,j,p-i-j])
+    # construct A matrix
+    A = np.zeros([len(x_),len(exps)])
+    for iA,(ix,iy,iz) in enumerate(exps):
+        s = (x_[:,0]**ix*x_[:,1]**iy*x_[:,2]**iz)
+        A[:,iA]=s
+    m_ = [np.linalg.lstsq(A, y_[:,iy])[0] for iy in range(len(x_[0]))]
+    m_=np.array(m_)
+    return m_
+def apply_colorcor(x,m=None):
+    """This applies chromatic abberation correction to order 2
+    x is a Nx3 vector of positions (typically 750(-->647))
+    m is a matrix computed by function calc_color_matrix
+    y is the corrected vector in another channel"""
+    if m is None:
+        return x
+    exps = []
+    order_max=10
+    for p in range(order_max+1):
+        for i in range(p+1):
+            for j in range(p+1):
+                if i+j<=p:
+                    exps.append([i,j,p-i-j])
+    #find the order
+    mx,my = m.shape
+    order = int((my-1)/mx)
+    assert(my<len(exps))
+    x_ = np.array(x)
+    # construct A matrix
+    exps = exps[:my]
+    A = np.zeros([len(x_),len(exps)])
+    for iA,(ix,iy,iz) in enumerate(exps):
+        s = (x_[:,0]**ix*x_[:,1]**iy*x_[:,2]**iz)
+        A[:,iA]=s
+    diff = [np.dot(A,m_) for m_ in m]
+    return x_+np.array(diff).T
